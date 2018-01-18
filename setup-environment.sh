@@ -28,9 +28,8 @@ ssh_urls=(
 function get_distro {
     local info
     command -v lsb_release >/dev/null 2>&1 && {
-    info="$(lsb_release -a 2>/dev/null)"
-    } || {
-    info="$(cat /etc/*-release)"
+    { info="$(lsb_release -a 2>/dev/null)"; } || {
+      info="$(cat /etc/*-release)"; }
     }
 
     [[ "$info" =~ "Ubuntu" ]] && echo true || echo false
@@ -274,21 +273,20 @@ function run_clean {
 }
 
 function print_help {
-    printf "Usage: $(basename "$0") [options] [directory]...
+    echo -n "Usage: $PROG_NAME [options] [directory]...
 Creates a development environment in specified directories.
 
 If no directory was specified, create an environment in the current directory
 
 Options:
-  -v				Enable verbosity
-  -d				Enable debug mode
-  -s, --ssh     		Use ssh keys for git clone
-  -e ID, --extid=ID		Use ID for the salesforce external id
+  -v                            Enable verbosity
+  -d                            Enable debug mode
+  -s, --ssh                     Use ssh keys for git clone
+  -e ID, --extid=ID             Use ID for the salesforce external id
   -u EMAIL, --email=EMAIL       Use EMAIL for the affiliate manager account email
-  -p PASS, --password=PASS	Use PASS for the affiliate manager password
-  --steps=STEPS			Run the specified STEPS instead of defaults
-  --clean			Cleans the specified directory and removes all docker containers (WARNING DESTRUCTIVE)
-"
+  -p PASS, --password=PASS      Use PASS for the affiliate manager password
+  --steps=STEPS	                Run the specified STEPS instead of defaults
+  --clean                       Cleans the specified directory and removes all docker containers (WARNING DESTRUCTIVE)"
 }
 
 PROG_NAME=$(basename "$0")
@@ -355,7 +353,7 @@ for d in $DIRS; do
     if [[ ! -d $d ]]; then
         write_verbose "creating directory $d"
         write_debug "mkdir $d"
-        mkdir $d
+        mkdir "$d"
     fi
     pushd "$d" >/dev/null
     # Cleans if necessary
