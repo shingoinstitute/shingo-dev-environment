@@ -3,6 +3,8 @@
 use_ssh=false
 debug=false
 verbose=false
+quiet=false
+dry_run=false
 txtgrn='\e[0;32m'
 txtblk='\e[0m'
 txtred='\e[0;31m'
@@ -61,23 +63,40 @@ fi
 
 # Writes to the console in a verbose format
 # PARAM $1: the text to write
-function write_verbose {
-    if [[ "$verbose" = true ]]; then
+function write_detail {
+    if [[ -z "$quiet" || "$quiet" = false ]]; then
         printf "${txtgrn}%s${txtblk}\n" "$1"
+    fi
+}
+
+# Runs the arguments passed to it, outputing to /dev/null if not in debug mode
+# PARAM $1: the command to run
+function run {
+    write_debug "$1"
+    if [[ "$dry_run" = true ]]; then
+        return 0
+    fi
+
+    if [[ "$verbose" = true && "$quiet" = false ]]; then
+        eval "$1"
+    else
+        eval "$1" > /dev/null
     fi
 }
 
 # Writes a header
 # PARAM $1: the text to write
 function write_header {
-    write_verbose "$1"
-    write_verbose "======================="
+    write_detail "$1"
+    if [[ "$verbose" = true ]]; then
+        write_detail "======================="
+    fi
 }
 
 # Writes to the console in a debug format
 # PARAM $1: the text to write
 function write_debug {
-    if [[ "$debug" = true ]]; then
+    if [[ "$debug" = true && "$quiet" = false ]]; then
         printf "${txtred}DEBUG${txtblk} -- %s\n" "$1"
     fi
 }
@@ -85,17 +104,19 @@ function write_debug {
 # Reads any variables not filled by parameters
 function read_variables {
     write_debug "${FUNCNAME[0]}"
-    if [[ -z $extid ]]; then
-        echo -n "External ID: "
-        read -r extid
-    fi
-    if [[ -z $user_email ]]; then
-        echo -n "Account Email: "
-        read -r user_email
-    fi
-    if [[ -z $user_pass ]]; then
-        echo -n "Account Password: "
-        read -r user_pass
+    if [[ "$steps" =~ "create_aff_user" ]]; then
+        if [[ -z $extid ]]; then
+            echo -n "External ID: "
+            read -r extid
+        fi
+        if [[ -z $user_email ]]; then
+            echo -n "Account Email: "
+            read -r user_email
+        fi
+        if [[ -z $user_pass ]]; then
+            echo -n "Account Password: "
+            read -r user_pass
+        fi
     fi
 }
 
@@ -104,9 +125,9 @@ function read_variables {
 function ensure_docker {
     write_debug "${FUNCNAME[0]}"
     command -v docker >/dev/null 2>&1 || {
-	if [[ "$(get_distro)" = true ]]; then
-              printf "Your distro is not supported. Install docker manually\n"
-	      return 1;
+        if [[ "$(get_distro)" = true ]]; then
+            printf "Your distro is not supported. Install docker manually\n"
+            return 1;
         fi
         write_header "Installing Docker"
         sudo apt install -y linux-image-extra-"$(uname -r)" linux-image-extra-virtual
@@ -124,17 +145,17 @@ function ensure_docker {
 function ensure_git {
     write_debug "${FUNCNAME[0]}"
     command -v git >/dev/null 2>&1 || {
-	if [[ "$(get_distro)" = true ]]; then
-              printf "Your distro is not supported. Install git manually\n"
-              return 1;
+        if [[ "$(get_distro)" = true ]]; then
+            printf "Your distro is not supported. Install git manually\n"
+            return 1;
         fi
         write_header "Installing Git"
         sudo apt install -y git
     }
     command -v make >/dev/null 2>&1 || {
-	if [[ "$(get_distro)" = true ]]; then
-              printf "Your distro is not supported. Install build-essential and make manually\n"
-              return 1;
+        if [[ "$(get_distro)" = true ]]; then
+            printf "Your distro is not supported. Install build-essential and make manually\n"
+            return 1;
         fi
         sudo apt install -y build-essential make make-doc
     }
@@ -150,8 +171,8 @@ function ensure_node {
         [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
         [ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
 
-        nvm install node
-        nvm use node
+        run "nvm install node"
+        run "nvm use node"
     fi
     return 0;
 }
@@ -169,10 +190,9 @@ function clone_repositories {
     fi
 
     for u in $urls; do
-        write_debug "git clone $u"
         file=$(basename "$u")
         if [ ! -d "${file%.*}" ]; then
-            git clone "$u"
+            run "git clone $u"
         fi
     done
 }
@@ -183,11 +203,9 @@ function start_docker {
     write_debug "${FUNCNAME[0]}"
     ensure_docker || { exit 1; }
     write_header "Starting docker container $1"
-    write_debug "cd $1"
-    cd "$1" || { echo -e "${txtred}Directory $1 doesn't exist${txtblk}" && exit 1; }
-    write_debug "./docker-start.sh"
-    ./docker-start.sh
-    cd ..
+    run "cd $1" || { echo -e "${txtred}Directory $1 doesn't exist${txtblk}" && exit 1; }
+    run ./docker-start.sh
+    run "cd .."
 }
 
 # Starts all the docker containers
@@ -199,8 +217,8 @@ function start_docker_containers {
         start_docker "$p"
     done
     # The mysql container needs some time to get started before we can connect
-    write_verbose "Waiting for MySQL container"
-    sleep 200;
+    write_detail "Waiting for MySQL container"
+    run "sleep 200"
 }
 
 # Creates the shingoauth database and 
@@ -230,8 +248,8 @@ function create_aff_user {
     write_header "Creating Affiliate User"
     write_debug "user_email: $user_email"
     write_debug "user_pass: $user_pass"
-    cd ./shingo-affiliates-api || { echo -e "${txtred}Directory shingo-affiliates-api doesn't exist${txtblk}" && exit 1; }
-    npm install
+    run "cd ./shingo-affiliates-api" || { echo -e "${txtred}Directory shingo-affiliates-api doesn't exist${txtblk}" && exit 1; }
+    run "npm install"
     ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shingo-auth-api)
     write_debug "shingo-auth-api ip: $ip:80"
     node <<< "const grpc = require('grpc')
@@ -241,7 +259,7 @@ const cb = good => (e, u) => e && console.error('error: ', e) || u && good(u)
 client.createUser({email: '$user_email', password: '$user_pass', services: 'affiliate-portal'},
     cb(u => client.updateUser({id: u.id, extId: '$extid'}, cb(u => u)))
 )";
-    cd ..
+    run "cd .."
 }
 
 # Grants affiliate manager privileges to the
@@ -281,12 +299,22 @@ If no directory was specified, create an environment in the current directory
 Options:
   -v                            Enable verbosity
   -d                            Enable debug mode
+  -q                            Quiet - don't output
   -s, --ssh                     Use ssh keys for git clone
   -e ID, --extid=ID             Use ID for the salesforce external id
   -u EMAIL, --email=EMAIL       Use EMAIL for the affiliate manager account email
   -p PASS, --password=PASS      Use PASS for the affiliate manager password
   --steps=STEPS	                Run the specified STEPS instead of defaults
-  --clean                       Cleans the specified directory and removes all docker containers (WARNING DESTRUCTIVE)"
+                                Available steps are:
+                                load_env                    Loads the environment file
+                                clone_repositories          Clones the git repositories
+                                start_docker_containers     Starts the docker containers
+                                create_database             Creates the mysql auth database
+                                create_aff_user             Creates the affiliate portal user in the database
+                                grant_affiliate_manager     Grants affiliate manager permissions to the user
+  --clean                       Cleans the specified directory and removes all docker containers (WARNING DESTRUCTIVE)
+  --dry-run                     Don't actually run anything
+  --start                       Starts the development environment. Alias for --steps='load_env start_docker_containers'"
 }
 
 PROG_NAME=$(basename "$0")
@@ -295,7 +323,7 @@ PROG_NAME=$(basename "$0")
 steps="load_env clone_repositories start_docker_containers create_database create_aff_user grant_affiliate_manager"
 
 # Uses gnu getopt to parse command-line parameters
-options=$(getopt -n "$PROG_NAME"  -o 'vdhse:u:p:' -l ssh,extid:,email:,password:,steps:,clean,help -- "$@")
+options=$(getopt -n "$PROG_NAME"  -o 'vdqhse:u:p:' -l ssh,extid:,email:,password:,steps:,start,clean,help,dry-run -- "$@")
 if [ "$?" != "0" ]; then
     print_help
     exit 1;
@@ -309,6 +337,9 @@ while true; do
             ;;
         -d)
             debug=true
+            ;;
+        -q)
+            quiet=true
             ;;
         -s | --ssh)
             use_ssh=true
@@ -329,13 +360,19 @@ while true; do
             shift;
             steps=$1
             ;;
+        --start)
+            steps="load_env start_docker_containers"
+            ;;
         --clean)
             clean=true
             ;;
-	-h|--help)
-	    print_help
-	    exit 0;
-	    ;;
+        --dry-run)
+            dry_run=true
+            ;;
+        -h|--help)
+            print_help
+            exit 0;
+            ;;
         --) shift; break;;
 	*) break;;
     esac
@@ -351,9 +388,8 @@ fi
 
 for d in $DIRS; do
     if [[ ! -d $d ]]; then
-        write_verbose "creating directory $d"
-        write_debug "mkdir $d"
-        mkdir "$d"
+        write_detail "creating directory $d"
+        run "mkdir $d"
     fi
     pushd "$d" >/dev/null
     # Cleans if necessary
